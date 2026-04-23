@@ -1,18 +1,17 @@
 import streamlit as st
-import hashlib
-import json
+import pandas as pd
+import plotly.graph_objects as go
+import hashlib, json
+from fpdf import FPDF
 from duckduckgo_search import DDGS
 
-# =============================================================================
-# C1 — IDENTIDAD SOBERANA (INMUTABLE)
-# =============================================================================
-IDENTIDAD_SOBERANA = "Claudio Falasca Consultor"
-VERSION_SISTEMA = "Heptágono SF v11.5"
+# =========================================================
+# IDENTIDAD SOBERANA
+# =========================================================
+ID_SOBERANA = "Claudio Falasca Consultor"
+VERSION = "Heptágono SF v12.0"
 
-# =============================================================================
-# C2 — EJES OFICIALES (NO MODIFICABLES)
-# =============================================================================
-EJES_OFICIALES = [
+EJES = [
     "Político-Institucional",
     "Socio-Territorial",
     "Económico-Financiero",
@@ -22,134 +21,123 @@ EJES_OFICIALES = [
     "Comunicacional-Estratégico"
 ]
 
-TRIADA_FRACTURA = [
-    "Político-Institucional",
-    "Socio-Territorial",
-    "Hídrico-Soberano"
-]
+st.set_page_config(page_title=VERSION, layout="wide")
 
-# =============================================================================
-# VALIDACIÓN ESTRUCTURAL
-# =============================================================================
-def validar_integridad_ejes(scores):
-    if set(scores.keys()) != set(EJES_OFICIALES):
-        st.error("ERROR: Ejes inconsistentes.")
-        st.stop()
+# =========================================================
+# ESTILO MIDNIGHT GOLD
+# =========================================================
+st.markdown("""
+<style>
+.stApp { background:#05070a; color:#e5e7eb }
+[data-testid="stSidebar"] { background:#0e1117 }
+.hash-footer { color:#6b7280; font-family:monospace; text-align:center }
+</style>
+""", unsafe_allow_html=True)
 
-# =============================================================================
-# C18 — OSINT REAL CON DUCKDUCKGO (SIN API)
-# =============================================================================
-def ejecutar_osint_real(proyecto, territorio):
+# =========================================================
+# PDF REAL (C22)
+# =========================================================
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font("Arial","B",12)
+        self.cell(0,10,f"{ID_SOBERANA} — Executive Summary",0,1,"C")
 
-    queries = [
-        f"conflicto minero {territorio}",
-        f"proyecto minero {territorio} permisos",
-        f"protesta minera {territorio}",
-        f"litigio ambiental {territorio}",
-        f"agua minería {territorio}"
-    ]
+def generar_pdf(data, firma):
+    pdf = PDFReport()
+    pdf.add_page()
+    pdf.set_font("Arial", size=11)
 
-    impacto = 0
-    snippets = []
+    pdf.multi_cell(0,8,f"Proyecto: {data['proyecto']}")
+    pdf.multi_cell(0,8,f"Territorio: {data['territorio']}")
+    pdf.multi_cell(0,8,f"ICR: {data['icr']} | ROI: {data['roi']}")
 
-    palabras_criticas = ["protesta","huelga","amparo","litigio","rechazo"]
-    palabras_positivas = ["aprobado","licencia","acuerdo","inversión"]
+    pdf.ln(4)
+    pdf.multi_cell(0,8,"Scores Heptágono:")
+    for eje,val in data["scores"].items():
+        pdf.cell(0,8,f"{eje}: {val}",ln=True)
 
+    pdf.ln(6)
+    pdf.multi_cell(0,8,f"Firma MD5: {firma}")
+    return pdf.output(dest="S").encode("latin-1")
+
+# =========================================================
+# OSINT REAL (C18)
+# =========================================================
+def osint_busqueda(territorio):
+    noticias=[]
     with DDGS() as ddgs:
-        for q in queries:
-            resultados = ddgs.text(q, max_results=3)
-            for r in resultados:
-                texto = r["title"] + " " + r["body"]
-                snippets.append(texto)
+        for r in ddgs.text(f"minería {territorio} conflicto", max_results=5):
+            noticias.append(r["title"])
+    return noticias
 
-                if any(p in texto.lower() for p in palabras_criticas):
-                    impacto -= 3
-                if any(p in texto.lower() for p in palabras_positivas):
-                    impacto += 2
+# =========================================================
+# LAYOUT 3 COLUMNAS OCD
+# =========================================================
+st.title(f"🏛️ {ID_SOBERANA}")
+col1,col2,col3 = st.columns([1,2,1])
 
-    return impacto, snippets[:10]
+# ================= COLUMNA CONTROL =================
+with col1:
+    proyecto = st.text_input("Proyecto","Josemaría")
+    territorio = st.text_input("Territorio","San Juan")
+    roi = st.slider("ROI (%)",0,60,30)
 
-# =============================================================================
-# C12 — ICR OFICIAL (SIN MULTIPLICADORES)
-# =============================================================================
-def calcular_icr(scores):
-    return 100 - scores["Socio-Territorial"]
+    st.subheader("Auditoría Heptágono")
+    scores={}
+    for eje in EJES:
+        scores[eje]=st.slider(eje,0,100,60)
 
-# =============================================================================
-# C16 — FRICTION INDEX MULTIEJE
-# =============================================================================
-def calcular_friction_index(scores):
-    valores = [scores[e] for e in TRIADA_FRACTURA]
-    return round(100 - sum(valores)/3, 2)
+# ================= COLUMNA VISUAL =================
+with col2:
+    fig = go.Figure(go.Scatterpolar(
+        r=list(scores.values()),
+        theta=EJES,
+        fill="toself",
+        line_color="#D4AF37"
+    ))
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",font_color="white")
+    st.plotly_chart(fig,use_container_width=True)
 
-# =============================================================================
-# C21 — HASH FORENSE DETERMINISTA (SIN TIMESTAMP)
-# =============================================================================
-def generar_hash_md5(payload):
-    serial = json.dumps(payload, sort_keys=True)
-    return hashlib.md5(serial.encode()).hexdigest()
+# ================= COLUMNA AUDITORÍA =================
+with col3:
+    icr = 100 - scores["Socio-Territorial"]
+    st.metric("ICR",icr)
 
-# =============================================================================
-# PIPELINE MAESTRO FINAL v11.5
-# =============================================================================
-def ejecutar_pipeline(proyecto, territorio, scores_base, roi):
+    noticias = osint_busqueda(territorio)
+    for n in noticias:
+        st.warning(n)
 
-    impacto_osint, evidencia = ejecutar_osint_real(proyecto, territorio)
+# =========================================================
+# PAYLOAD FORENSE + HASH DETERMINISTA
+# =========================================================
+payload={
+    "owner":ID_SOBERANA,
+    "version":VERSION,
+    "proyecto":proyecto,
+    "territorio":territorio,
+    "scores":scores,
+    "ICR":icr,
+    "ROI":roi,
+    "OSINT":noticias
+}
 
-    scores_finales = {
-        k: max(0, min(100, v + (impacto_osint if k in TRIADA_FRACTURA else 0)))
-        for k, v in scores_base.items()
-    }
+firma = hashlib.md5(json.dumps(payload,sort_keys=True).encode()).hexdigest()
 
-    validar_integridad_ejes(scores_finales)
+# =========================================================
+# GUARDIA MLC
+# =========================================================
+if icr>70 and roi>30:
+    st.error("🚫 BLOQUEO ÉTICO MLC")
+    st.stop()
 
-    icr = calcular_icr(scores_finales)
-    friction_index = calcular_friction_index(scores_finales)
+# =========================================================
+# GENERAR PDF REAL
+# =========================================================
+if st.button("📄 Generar PDF"):
+    pdf_bytes=generar_pdf(
+        {"proyecto":proyecto,"territorio":territorio,"icr":icr,"roi":roi,"scores":scores},
+        firma
+    )
+    st.download_button("Descargar Reporte",pdf_bytes,file_name=f"Reporte_{firma[:8]}.pdf")
 
-    bloqueo_mlc = roi > 30 and icr > 70
-
-    payload = {
-        "owner": IDENTIDAD_SOBERANA,
-        "version": VERSION_SISTEMA,
-        "proyecto": proyecto,
-        "territorio": territorio,
-        "indicadores": {
-            "scores": scores_finales,
-            "ICR": icr,
-            "Friction_Index": friction_index,
-            "ROI": roi
-        },
-        "OSINT": evidencia,
-        "MLC_STATUS": "BLOCKED" if bloqueo_mlc else "CLEAR"
-    }
-
-    firma = generar_hash_md5(payload)
-    payload["HASH_MD5"] = firma
-
-    return payload
-
-# =============================================================================
-# UI STREAMLIT (BLOQUEO ÉTICO CON st.stop())
-# =============================================================================
-st.title("Copiloto Minero — Heptágono SF v11.5")
-st.caption("Risk · Territory · Evidence")
-
-proyecto = st.text_input("Proyecto", "Proyecto Ejemplo")
-territorio = st.text_input("Territorio", "San Juan")
-roi = st.slider("ROI proyectado (%)", 0, 60, 25)
-
-st.subheader("Scores iniciales")
-scores_base = {}
-for eje in EJES_OFICIALES:
-    scores_base[eje] = st.slider(eje, 0, 100, 60)
-
-if st.button("Ejecutar Diagnóstico"):
-    payload = ejecutar_pipeline(proyecto, territorio, scores_base, roi)
-
-    if payload["MLC_STATUS"] == "BLOCKED":
-        st.error("GUARDIA MLC — DESPACHO BLOQUEADO")
-        st.write("HASH INCIDENTE:", payload["HASH_MD5"])
-        st.stop()
-
-    st.success("SISTEMA VALIDADO")
-    st.json(payload)
+st.markdown(f"<div class='hash-footer'>Hash Forense: {firma}</div>",unsafe_allow_html=True)
