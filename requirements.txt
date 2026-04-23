@@ -5,3 +5,4 @@ plotly
 duckduckgo-search
 beautifulsoup4
 requests
+fpdf
