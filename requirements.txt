@@ -1,5 +1,2 @@
 streamlit
 duckduckgo-search
-pandas
-numpy
-plotly
